@@ -1,7 +1,40 @@
+# R / RStudio
 .RData
 .Rhistory
 .Rproj.user/
-__pycache__/
-*.pyc
-.DS_Store
+
+# Generated analysis output
 output/
+
+# Python
+__pycache__/
+*.py[codz]
+*$py.class
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python build/package files
+build/
+dist/
+*.egg-info/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Environment / secrets
+.env
+.envrc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+

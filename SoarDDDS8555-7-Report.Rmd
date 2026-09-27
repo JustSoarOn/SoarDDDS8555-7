@@ -1,0 +1,712 @@
+---
+title: "Assignment 7: Clustering Analysis"
+subtitle: "SoarDDDS8555-7 - Interpretation and Report of the Python Analysis"
+author: "Soar, Donald"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    number_sections: true
+fontsize: 11pt
+geometry: margin=1in
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center"
+)
+
+PROJECT_ROOT <- normalizePath(
+  getwd(),
+  winslash = "/",
+  mustWork = TRUE
+)
+
+RESULT_DIR <- file.path(
+  PROJECT_ROOT,
+  "output",
+  "results"
+)
+
+FIG_DIR <- file.path(
+  PROJECT_ROOT,
+  "output",
+  "figures"
+)
+
+BART_DIR <- file.path(
+  PROJECT_ROOT,
+  "output",
+  "bart"
+)
+
+SUBMISSIONS_DIR <- file.path(
+  PROJECT_ROOT,
+  "output",
+  "submissions"
+)
+
+read_result <- function(filename) {
+
+  path <- file.path(
+    RESULT_DIR,
+    filename
+  )
+
+  if (!file.exists(path)) {
+    return(NULL)
+  }
+
+  tryCatch(
+    read.csv(
+      path,
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    ),
+    error = function(e) NULL
+  )
+}
+
+
+artifact_exists <- function(filename) {
+
+  file.exists(
+    file.path(
+      RESULT_DIR,
+      filename
+    )
+  )
+
+}
+
+
+show_table <- function(
+  data,
+  caption = NULL,
+  digits = 4
+) {
+
+  if (!is.null(data) && nrow(data) > 0) {
+
+    numeric_columns <- names(data)[
+      vapply(
+        data,
+        is.numeric,
+        logical(1)
+      )
+    ]
+
+    if (length(numeric_columns) > 0) {
+
+      data[numeric_columns] <- lapply(
+        data[numeric_columns],
+        function(x) round(x, digits)
+      )
+
+    }
+
+    knitr::kable(
+      data,
+      caption = caption
+    )
+
+  } else {
+
+    cat(
+      "The requested result artifact is not currently available."
+    )
+
+  }
+
+}
+
+
+show_figure <- function(
+  path,
+  message = "The requested figure is not currently available."
+) {
+
+  if (file.exists(path)) {
+
+    knitr::include_graphics(path)
+
+  } else {
+
+    cat(message)
+
+  }
+
+}
+
+
+
+```
+
+
+## Introduction
+
+This report examines clustering and dimensionality-reduction methods for identifying structure in multivariate data. The analysis consists of three related components: a conceptual examination of the K-means clustering objective, an applied hierarchical-clustering analysis of the USArrests data, and a broader clustering analysis of wine chemistry data.
+
+The conceptual component examines why the K-means algorithm decreases its within-cluster sum-of-squares objective at each iteration. The applied USArrests analysis uses hierarchical clustering with Euclidean distance and complete linkage, first using the original variables and then using standardized variables. The resulting three-cluster solutions are compared to demonstrate how variable scaling can influence distance-based clustering.
+
+The primary analysis uses a wine dataset to examine dimensionality reduction and clustering through PCA, K-means, and hierarchical clustering. The analysis begins with data-quality checks and descriptive statistics. Because the variables are measured on different scales and several variables are correlated, the data are standardized and Principal Component Analysis (PCA) is used to reduce dimensionality while retaining at least 80% of the total variance. PCA provides a lower-dimensional representation of the wine data while preserving most of the information contained in the original variables (Jolliffe & Cadima, 2016).
+
+K-means clustering is then applied to the retained principal components. Multiple values of \(k\) are evaluated using both inertia and silhouette scores rather than selecting the number of clusters arbitrarily. The resulting clusters are interpreted using the original wine variables and standardized cluster profiles. Hierarchical clustering is subsequently used as a complementary approach, with both standardized and unscaled data examined. Agreement between clustering approaches is evaluated using the Adjusted Rand Index.
+
+The analysis is motivated by the broader use of multivariate methods for understanding wine characteristics and classification. Previous research has demonstrated the usefulness of PCA for identifying structure in wine-related measurements (Barth et al., 2021), while K-means provides a foundational approach for partitioning multivariate observations into clusters (MacQueen, 1967). Together, these methods provide a framework for examining how dimensionality reduction, scaling, and clustering choices affect the identification and interpretation of groups within multivariate data.
+
+## Conceptual Question 1
+
+### (a) Prove Equation (12.18)
+
+For cluster \(C_k\), let \(n_k=|C_k|\), and let the mean of feature \(j\) within cluster \(C_k\) be
+
+\[
+\bar{x}_{kj}=\frac{1}{n_k}\sum_{i\in C_k}x_{ij}.
+\]
+
+To show that
+
+\[
+\frac{1}{|C_k|}
+\sum_{i\in C_k}\sum_{i'\in C_k}\sum_{j=1}^{p}
+(x_{ij}-x_{i'j})^2
+=
+2\sum_{i\in C_k}\sum_{j=1}^{p}
+(x_{ij}-\bar{x}_{kj})^2.
+\tag{12.18}
+\]
+
+For a fixed feature \(j\), expand the squared difference:
+
+\[
+(x_{ij}-x_{i'j})^2
+=
+x_{ij}^2-2x_{ij}x_{i'j}+x_{i'j}^2.
+\]
+
+Summing over all pairs of observations in \(C_k\),
+
+\[
+\sum_{i,i'\in C_k}(x_{ij}-x_{i'j})^2
+=
+2n_k\sum_{i\in C_k}x_{ij}^2
+-
+2\left(\sum_{i\in C_k}x_{ij}\right)^2.
+\]
+
+Dividing by \(n_k\) gives
+
+\[
+\frac{1}{n_k}
+\sum_{i,i'\in C_k}(x_{ij}-x_{i'j})^2
+=
+2\sum_{i\in C_k}x_{ij}^2
+-
+\frac{2}{n_k}
+\left(\sum_{i\in C_k}x_{ij}\right)^2.
+\]
+
+Because
+
+\[
+\bar{x}_{kj}
+=
+\frac{1}{n_k}\sum_{i\in C_k}x_{ij},
+\]
+
+have
+
+\[
+\frac{1}{n_k}
+\left(\sum_{i\in C_k}x_{ij}\right)^2
+=
+n_k\bar{x}_{kj}^{\,2}.
+\]
+
+Therefore,
+
+\[
+\frac{1}{n_k}
+\sum_{i,i'\in C_k}(x_{ij}-x_{i'j})^2
+=
+2\left[
+\sum_{i\in C_k}x_{ij}^2
+-
+n_k\bar{x}_{kj}^{\,2}
+\right].
+\]
+
+Now consider the within-cluster sum of squared deviations from the mean:
+
+\[
+\sum_{i\in C_k}(x_{ij}-\bar{x}_{kj})^2.
+\]
+
+Expanding this expression gives
+
+\[
+\sum_{i\in C_k}(x_{ij}-\bar{x}_{kj})^2
+=
+\sum_{i\in C_k}x_{ij}^2
+-
+2\bar{x}_{kj}\sum_{i\in C_k}x_{ij}
++
+n_k\bar{x}_{kj}^{\,2}.
+\]
+
+Since
+
+\[
+\sum_{i\in C_k}x_{ij}=n_k\bar{x}_{kj},
+\]
+
+this becomes
+
+\[
+\sum_{i\in C_k}(x_{ij}-\bar{x}_{kj})^2
+=
+\sum_{i\in C_k}x_{ij}^2
+-
+n_k\bar{x}_{kj}^{\,2}.
+\]
+
+Consequently,
+
+\[
+\frac{1}{n_k}
+\sum_{i,i'\in C_k}(x_{ij}-x_{i'j})^2
+=
+2\sum_{i\in C_k}(x_{ij}-\bar{x}_{kj})^2.
+\]
+
+Finally, summing over all \(p\) features gives
+
+\[
+\boxed{
+\frac{1}{|C_k|}
+\sum_{i\in C_k}\sum_{i'\in C_k}\sum_{j=1}^{p}
+(x_{ij}-x_{i'j})^2
+=
+2\sum_{i\in C_k}\sum_{j=1}^{p}
+(x_{ij}-\bar{x}_{kj})^2
+}
+\]
+
+which proves Equation (12.18).
+
+### (b) Why K-means decreases the objective at each iteration
+
+The K-means objective is the total within-cluster sum of squared distances,
+
+\[
+W=
+\sum_{k=1}^{K}
+\sum_{i\in C_k}\sum_{j=1}^{p}
+(x_{ij}-\bar{x}_{kj})^2.
+\]
+
+Equation (12.18) shows that this objective is proportional to the average of the pairwise squared distances within each cluster. Therefore, minimizing the within-cluster squared distances is equivalent to minimizing these pairwise distances.
+
+Because the objective is a sum of squared distances, it is bounded below by zero. Therefore, repeated centroid updates and reassignment steps produce a non-increasing sequence of objective values that must eventually converge.
+
+First, given the current cluster assignments, the cluster means are calculated. For fixed cluster assignments, the mean \(\bar{x}_{kj}\) minimizes the sum of squared deviations
+
+\[
+\sum_{i\in C_k}(x_{ij}-\bar{x}_{kj})^2.
+\]
+
+Thus, updating the cluster means cannot increase the K-means objective.
+
+Next, given the updated centroids, observations are reassigned to the cluster whose centroid is closest in squared Euclidean distance. For fixed centroids, this assignment minimizes each observation's contribution to the objective. Thus, reassignment also cannot increase the objective.
+
+Because both steps either decrease or leave unchanged the K-means objective,
+each iteration of the algorithm cannot increase the objective function. The
+objective therefore decreases monotonically until the cluster assignments no
+longer change. At that point, the algorithm has reached a local optimum.
+Because K-means can converge to different local optima depending on the initial
+cluster assignments, the algorithm is commonly run multiple times with
+different initializations.
+
+Thus, **Question 1 establishes why K-means works mathematically**: the centroid
+update and observation reassignment steps **cannot increase** the
+within-cluster sum-of-squares objective. The empirical K-means analysis of the
+wine data that follows applies this principle by evaluating alternative values
+of \(k\) and examining how well different cluster solutions represent the
+reduced data.
+
+
+## Applied Question 9: USArrests
+
+### (a) Hierarchical clustering using complete linkage and Euclidean distance
+
+Hierarchical clustering builds a nested sequence of clusters based on pairwise dissimilarities and a specified linkage criterion. In complete-linkage clustering, the distance between two clusters is determined by the largest pairwise distance between their observations (Murtagh & Contreras, 2012).
+
+The `USArrests` data contain four variables—Murder, Assault, UrbanPop, and Rape—for 50 U.S. states. Hierarchical clustering was performed using Euclidean distance and complete linkage on the variables in their original, unscaled units.
+
+The resulting dendrogram is shown below.
+
+```{r}
+show_figure(
+  file.path(FIG_DIR, "usarrests_hierarchical_unscaled.png")
+)
+
+```
+
+
+Complete linkage defines the distance between two clusters using the largest pairwise distance between observations in the two clusters. Using the original measurement scales allows variables with larger numerical ranges to contribute more strongly to the Euclidean distances. This issue becomes important when the results are compared with the standardized analysis in part (c).
+
+
+### (b) Three-cluster solution
+
+Cutting the unscaled dendrogram to produce three distinct clusters resulted in the following state groupings:
+
+**Cluster 1 (16 states):** Alabama, Alaska, Arizona, California, Delaware, Florida, Illinois, Louisiana, Maryland, Michigan, Mississippi, Nevada, New Mexico, New York, North Carolina, South Carolina.
+
+**Cluster 2 (14 states):** Arkansas, Colorado, Georgia, Massachusetts, Missouri, New Jersey, Oklahoma, Oregon, Rhode Island, Tennessee, Texas, Virginia, Washington, Wyoming.
+
+**Cluster 3 (20 states):** Connecticut, Hawaii, Idaho, Indiana, Iowa, Kansas, Kentucky, Maine, Minnesota, Montana, Nebraska, New Hampshire, North Dakota, Ohio, Pennsylvania, South Dakota, Utah, Vermont, West Virginia, Wisconsin.
+
+The three clusters contain 16, 14, and 20 states, respectively. These groupings represent similarities in the four `USArrests` variables under the unscaled Euclidean-distance measure and complete-linkage criterion.
+
+
+### (c) Hierarchical clustering after standardization
+
+The hierarchical clustering was repeated after standardizing the four
+`USArrests` variables so that each variable had a standard deviation of one.
+Complete linkage and Euclidean distance were again used.
+
+The resulting dendrogram is shown below.
+
+```{r}
+show_figure(
+  file.path(FIG_DIR, "usarrests_hierarchical_scaled.png")
+)
+
+```
+
+
+Standardization places the four variables on a common scale before calculating
+the Euclidean distances. The resulting clusters can therefore be compared
+with the unscaled solution to evaluate how the original measurement scales
+influenced the clustering.
+
+
+### (d) Effect of scaling on the hierarchical clustering
+
+Scaling the variables substantially changed the three-cluster solution. In the
+unscaled analysis, the three clusters contained 16, 14, and 20 states. After
+standardization, the clusters contained 31, 11, and 8 states. The membership
+of several states also changed between the two solutions.
+
+The reason for this difference is that Euclidean distance is sensitive to the
+scale of the variables. In the unscaled analysis, variables with larger
+numerical ranges have greater influence on the calculated distances.
+Standardization gives each variable equal variance and therefore prevents a
+variable from dominating the clustering solely because of its measurement
+scale.
+
+Because Murder, Assault, UrbanPop, and Rape are measured on different numerical scales, standardization is appropriate when the objective is to give each variable comparable influence in the Euclidean distance calculation. However, scaling is not automatically appropriate in every application. 
+
+If the original units and their relative magnitudes are substantively meaningful, retaining the original scale may be justified. Therefore, the decision to standardize should be based on the purpose of the analysis and the substantive meaning of the variables.
+
+
+## Wine Clustering Analysis
+
+### Data and preprocessing
+
+The Wine clustering analysis used 178 observations and 13 quantitative
+variables describing chemical properties of wine. The variables included
+Alcohol, Malic Acid, Ash, Ash Alcanity, Magnesium, Total Phenols, Flavanoids,
+Nonflavanoid Phenols, Proanthocyanins, Color Intensity, Hue, OD280, and
+Proline.
+
+The initial data inspection found no missing values and no duplicate
+observations. Because the variables are measured on different numerical
+scales, the variables were standardized before principal component analysis
+and subsequent clustering. Standardization places the variables on a
+comparable scale so that variables with larger numerical units do not
+dominate the multivariate analysis.
+
+
+
+### Principal Component Analysis
+
+Principal component analysis (PCA) was conducted to reduce the 13 original wine variables to a smaller set of uncorrelated components while retaining as much of the overall variance as possible. PCA transforms the original variables into a smaller number of principal components that summarize the major dimensions of variation in the data (Jolliffe & Cadima, 2016). PCA has also been applied to wine characteristics to identify lower-dimensional representations of wine-related measurements (Barth et al., 2021).
+
+For this analysis, PCA was performed on the standardized wine variables because the original variables were measured on substantially different scales. The principal components were then evaluated based on the proportion of total variance they explained. Components were retained until the cumulative explained variance reached at least 80%, consistent with the assignment requirement.
+
+
+```{r}
+show_figure(
+  file.path(FIG_DIR, "pca_cumulative_variance.png")
+)
+
+```
+
+
+Five principal components, which explain:
+
+  **80.1623% of total variance**
+
+The cumulative variance is:
+
+| Component	| Variance	  | Cumulative | 
+|:---       |---:         |---:        |
+| PC1	      | 36.20%	    | 36.20%     |
+| PC2	      | 19.21%	    | 55.41%     |
+| PC3	      | 11.12%	    | 66.53%     |
+| PC4	      | 7.07%	      | 73.60%     |
+| PC5	      | 6.56%	      | 80.16%     |
+________________________________________
+
+
+This means the original 13-dimensional wine data can be represented by 5 components while retaining just over 80% of the variation.
+**PC1** is particularly associated with **Flavanoids**, **Total Phenols**, **OD280**, **Proanthocyanins**, and **Hue**, while **PC2** has relatively strong contributions from **Color Intensity** and **Alcohol**.
+
+The first five principal components were retained because they account for
+**80.1623%** of the total variance. Thus, the **13 original variables** can be
+represented by five components while retaining slightly more than the required
+**80%** of the variance.
+
+
+The scree plot provides a complementary view of the variance captured by the
+principal components.
+
+
+```{r}
+show_figure(
+  file.path(FIG_DIR, "pca_scree_plot.png")
+)
+
+```
+
+
+#### Interpretation of PCA Loadings
+
+The retained principal components summarize different patterns of variation
+among the standardized wine characteristics. PC1 has relatively strong
+positive loadings for Flavanoids, Total Phenols, Proanthocyanins, and OD280,
+indicating that these measures contribute substantially to this component.
+
+PC2 has its largest positive loadings for Color Intensity, Alcohol, and Proline, with a moderate negative loading for Hue. PC3 is dominated by positive loadings for Ash and Ash Alcanity, while PC4 has relatively strong positive loadings for Malic Acid and Proanthocyanins and negative loadings for Hue. PC5 is characterized most strongly by Magnesium and, in the opposite direction, Nonflavanoid Phenols.
+
+
+The signs of PCA loadings indicate direction rather than importance by
+themselves; the magnitude of a loading indicates the strength of a variable's
+contribution to a component. Overall, the loading structure indicates that the
+five retained components capture several distinct dimensions of variation
+across the original 13 wine variables.
+
+
+```{r}
+show_figure(
+  file.path(FIG_DIR, "kmeans_silhouette_plot.png")
+)
+
+```
+
+
+
+### K-means Clustering
+
+K-means clustering was performed using the five retained PCA scores rather than the original 13 variables. This approach reduces the dimensionality of the clustering problem while retaining 80.1623% of the total variance in the original standardized data. Because the principal components are orthogonal, the retained PCA scores also provide an uncorrelated representation of the dimensions used for clustering.
+
+K-means partitions observations into k clusters by iteratively assigning observations to their nearest centroid and updating the centroid of each cluster (MacQueen, 1967).
+
+The number of clusters was not assumed in advance. Instead, K-means solutions with 𝑘 ranging from 2 through 10 were evaluated using both within-cluster inertia and silhouette scores. Inertia measures the total within-cluster sum of squared distances, while the silhouette score provides an assessment of how well observations are separated from neighboring clusters.
+
+```{r}
+show_figure(
+  file.path(FIG_DIR, "kmeans_elbow_plot.png")
+)
+
+```
+
+
+
+The elbow plot shows that inertia decreases as additional clusters are added. Because inertia will generally decrease as 𝑘 increases, it is useful to consider the silhouette criterion as an additional measure of cluster quality.
+
+```{r}
+show_figure(
+  file.path(FIG_DIR, "kmeans_silhouette_plot.png")
+)
+
+```
+
+
+
+K-means solutions evaluated values of \(k\) from 2 through 10. The highest silhouette score occurred at 
+𝑘= 3, with a score of 0.3691. 
+
+The candidate scores were:
+
+  𝑘= 2 : 0.3239
+
+  𝑘= 3 : 0.3691
+
+  𝑘= 4 : 0.3256
+
+  𝑘= 5 : 0.3078
+
+  𝑘= 6 : 0.2728
+
+  𝑘 = 7 : 0.2756
+
+  𝑘= 8 : 0.2447
+
+  𝑘= 9 : 0.2240
+
+  𝑘= 10 : 0.2212
+
+The highest silhouette score occurred at𝑘= 3. 
+
+Based on this criterion, the three-cluster solution provides the strongest separation among the candidate K-means solutions evaluated. The silhouette value of 0.3691 indicates meaningful but not especially strong separation, so the resulting clusters should be interpreted as overlapping patterns of similarity rather than perfectly distinct groups.
+
+The three-cluster K-means solution was therefore selected for subsequent interpretation using the original wine variables.
+
+### K-means Cluster Profiles
+
+The three clusters have noticeably different characteristics.
+
+
+The standardized profiles make those differences easier to interpret because the variables are measured on a common scale.
+
+
+*The three-cluster K-means solution was examined using the original wine variables* to characterize the differences among the resulting clusters. 
+
+The cluster profiles show meaningful differences across several chemical
+properties.
+
+*Cluster 1 is characterized by relatively low Alcohol, Color Intensity, and Proline, with moderate levels of the phenolic variables*. 
+
+*Cluster 2 has higher Malic Acid and Color Intensity but substantially lower Total Phenols, Flavanoids, Proanthocyanins, Hue, and OD280*. 
+
+*Cluster 3 has the highest average Alcohol and Proline values and relatively high Total Phenols, Flavanoids, Proanthocyanins, and OD280*.
+
+The standardized profiles provide additional context. 
+
+Cluster 3 has positive standardized values for Alcohol, Magnesium, Total Phenols, Flavanoids, Proanthocyanins, Hue, OD280, and Proline. 
+
+Cluster 2 is distinguished by higher Malic Acid, Ash Alcanity, and Color Intensity and lower values for several phenolic measures. 
+
+Cluster 1 generally has lower Alcohol, Ash, Magnesium, Color Intensity, and Proline.
+
+These profiles indicate that the three clusters differ across multiple dimensions of wine chemistry rather than being separated by a single variable. 
+
+The PCA-based clustering therefore provides a reduced representation of multidimensional structure in the original data.
+
+
+### Hierarchical Clustering
+
+Hierarchical clustering was also conducted to examine whether the wine observations produced similar groupings under a different clustering approach. 
+
+Both unscaled and standardized versions of the data were examined
+using hierarchical clustering.
+
+
+```{r}
+show_figure(
+  file.path(FIG_DIR, "hierarchical_unscaled_dendrogram.png")
+)
+
+```
+
+
+
+The unscaled dendrogram illustrates the hierarchical structure when theoriginal measurement scales are retained. 
+
+Because variables with larger numerical ranges contribute more strongly to Euclidean distance, the resulting cluster structure can be influenced by differences in measurement scale.
+
+
+```{r}
+show_figure(
+  file.path(FIG_DIR, "hierarchical_scaled_dendrogram.png")
+)
+
+```
+
+
+After standardization, the hierarchical structure changes substantially. 
+
+The three-cluster solution contains 69 observations in Cluster 1, 51 in Cluster 2, and 58 in Cluster 3, compared with 43, 52, and 83 observations, respectively, in the unscaled solution.
+
+
+| Solution	 | Cluster 1	| Cluster 2	 | Cluster 3       |
+|:---        |---:        |---:        |---:             |
+| Unscaled	 |43 (24.16%)	| 52 (29.21%)|	83 (46.63%)    |
+| Standardized |69 (38.76%)	| 51 (28.65%)	| 58 (32.58%)  |
+|--------------------------------------------------------|
+
+The difference between the two dendrograms demonstrates that preprocessing
+choices can materially affect hierarchical clustering results.
+
+Standardization changes not only the hierarchical tree but also the relative size of the resulting clusters. In particular, the largest unscaled cluster contains 83 observations, whereas the largest standardized cluster contains 69 observations. 
+
+This indicates that the original measurement scales have a substantial influence on the distance structure of the wine data.
+
+### Assumptions, Methodological Considerations, and Limitations
+
+Several methodological considerations are important when interpreting these clustering results. 
+
+First, clustering methods based on Euclidean distance are sensitive to the scale of the variables. 
+
+Standardization was therefore important for preventing variables with larger numerical ranges from dominating the distance calculations.
+
+Second, PCA is a linear transformation that summarizes variation in the original variables through orthogonal components. Retaining five components was a dimensionality-reduction decision based on the assignment's requirement to retain at least 80% of the variance. The five retained components explained 80.1623% of the total variance, while approximately 19.84% of the variance was not retained.
+
+Third, K-means requires the number of clusters to be specified and is sensitive to initialization. In this analysis, multiple values of \(k\) were evaluated rather than assuming a cluster count in advance. 
+
+The silhouette criterion identified \(k=3\) as the strongest of the evaluated solutions, although the silhouette score of 0.3691 indicates that the clusters are not perfectly separated.
+
+Finally, clustering results should be interpreted as descriptions of structure in the observed data rather than as evidence that the clusters represent naturally occurring or causal categories. 
+
+Different preprocessing choices, distance measures, linkage criteria, or clustering algorithms can produce different groupings.
+
+
+
+## Discussion
+
+The results demonstrate that preprocessing and methodological choices can materially affect clustering results. For the wine data, PCA reduced the original 13 variables to five principal components while retaining 80.1623% of the total variance. This provided a substantially lower-dimensional representation for clustering while preserving most of the variation in the original measurements.
+
+The K-means analysis identified k = 3 as the strongest solution among the values evaluated from 2 through 10 based on the silhouette criterion. The three clusters differed across several original wine characteristics, particularly alcohol, phenolic measures, color intensity, hue, OD280, and proline. The differences across multiple variables suggest that the clusters represent multidimensional patterns rather than separation according to a single chemical characteristic.
+
+The hierarchical analysis provided a complementary view of the data. Standardization substantially changed the resulting cluster sizes, demonstrating that Euclidean-distance-based clustering is sensitive to measurement scale. The Adjusted Rand Index between the K-means solution and standardized hierarchical clustering was 0.5959, while the corresponding value for K-means and unscaled hierarchical clustering was 0.3450. These values indicate partial agreement between the methods, with greater agreement between K-means and the standardized hierarchical solution.
+
+The USArrests analysis reinforced the importance of scaling. The unscaled and standardized hierarchical analyses produced substantially different state groupings. When the objective is to treat the four variables as comparable dimensions of similarity, standardization prevents variables with larger numerical ranges from receiving greater influence simply because of their units. However, the appropriate preprocessing choice ultimately depends on the substantive meaning of the variables and the purpose of the analysis.
+
+The findings should therefore be interpreted as evidence of similarity structure within the observed datasets rather than as definitive or naturally occurring classifications. Different choices of scaling, distance metric, linkage method, number of clusters, or clustering algorithm can lead to different results. Comparing multiple approaches and examining cluster profiles provides a more robust basis for interpreting the observed structure.
+
+## Conclusion
+
+This report applied PCA, K-means clustering, and hierarchical clustering to investigate structure in multivariate data and examined the effect of scaling on distance-based clustering. The conceptual K-means analysis established that the centroid-update and reassignment steps cannot increase the within-cluster sum-of-squares objective, providing the mathematical basis for the iterative K-means algorithm.
+
+For the wine data, the initial data-quality analysis found 178 observations, 13 variables, no missing values, and no duplicate observations. PCA reduced the 13 standardized variables to five principal components that explained 80.1623% of the total variance. K-means solutions with k = 2 through k = 10 were then evaluated using inertia and silhouette scores. 
+ 
+The highest silhouette score among the evaluated solutions was 0.3691 at k = 3, so the three-cluster solution was selected for subsequent interpretation.
+
+Hierarchical clustering provided a complementary analysis and demonstrated the importance of scaling. For the wine data, standardization changed the three-cluster size distribution from 43, 52, and 83 observations in the unscaled solution to 69, 51, and 58 observations in the standardized solution. Agreement between K-means and standardized hierarchical clustering was higher than agreement between K-means and unscaled hierarchical clustering, with Adjusted Rand Index values of 0.5959 and 0.3450, respectively.
+
+The USArrests analysis produced a similar demonstration of the effect of scaling. Complete-linkage hierarchical clustering generated substantially different three-cluster solutions when the original variables were compared with standardized variables. This result illustrates that scaling is an important methodological decision when Euclidean distance is used and variables have different measurement ranges.
+
+Overall, the analyses demonstrate that dimensionality reduction and clustering can provide useful descriptions of multivariate structure, but the resulting groups depend on methodological choices. Scaling, the choice of clustering algorithm, the number of clusters, and the distance or linkage criteria can all influence the observed grouping. Consequently, cluster results should be interpreted in the context of the data, the analytical objective, and the assumptions underlying the selected methods.
+
+## References
+
+Barth, J., Katumullage, D., Yang, C., & Cao, J. (2021). Classification of wines using principal component analysis. Journal of Wine Economics, 16(2), 181–198. https://doi.org/10.1017/jwe.2021.1
+
+Jolliffe, I. T., & Cadima, J. (2016). Principal component analysis: A review and recent developments. Philosophical Transactions of the Royal Society A: Mathematical, Physical and Engineering Sciences, 374(2065), 20150202. https://doi.org/10.1098/rsta.2015.0202
+
+MacQueen, J. (1967). Some methods for classification and analysis of multivariate observations. In Proceedings of the Fifth Berkeley Symposium on Mathematical Statistics and Probability (Vol. 1, pp. 281–297). University of California Press. https://digicoll.lib.berkeley.edu/record/113015
+
+Murtagh, F., & Contreras, P. (2012). Algorithms for hierarchical clustering: An overview. Wiley Interdisciplinary Reviews: Data Mining and Knowledge Discovery, 2(1), 86–97. https://doi.org/10.1002/widm.53
